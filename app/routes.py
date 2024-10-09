@@ -19,7 +19,7 @@ def ask():
         response = ask_open_ai(question)
         
         if response['status_code'] == 200:
-            output_data = response['choices'][0]['message']['content'].strip()
+            output_data = response['content'].strip()
             save_record(question=question, response=output_data, status_code=200)
             return jsonify({'output_string': output_data})
         else:
