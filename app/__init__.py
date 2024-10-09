@@ -4,8 +4,6 @@ from flask_migrate import Migrate
 from dotenv import load_dotenv
 import os
 
-
-
 migrate = Migrate()
 
 load_dotenv()
@@ -20,7 +18,6 @@ def create_app():
     migrate.init_app(app, db)
 
     with app.app_context():
-        print("Creating new tables!")
         db.create_all()
 
     from .routes import main

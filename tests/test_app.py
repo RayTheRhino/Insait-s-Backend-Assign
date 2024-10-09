@@ -1,42 +1,71 @@
-import requests
+import pytest
+from flask import json
+from app import create_app
+from unittest.mock import patch
+import os
 
-# Define your endpoint here
-ENDPOINT = "http://localhost:5000/ask"  # Ensure this matches your Flask app's URL
+@pytest.fixture
+def client():
+    with patch.dict(os.environ, {'DATABASE_URL': 'sqlite:///:memory:'}):
 
-def test_can_call_endpoint():
-    # Test to see if the main endpoint is reachable
-    response = requests.get(ENDPOINT)
-    assert response.status_code == 200
+        app = create_app()
+        app.config['TESTING'] = True
+        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-def test_can_create_ask_record():
-    # Prepare the payload for creating a new ask record
-    payload = {
-        "question": "What is the capital of France?",  # Required field based on your model
-        # "response": "",  # Optional field, can be added if needed
-        # "error": "",     # Optional field, can be added if needed
-        # "status_code": 200  # Optional field, can be added if needed
-    }
+        with app.test_client() as client:
+            with app.app_context():
+                from app.models import db
+                db.create_all()  
+            yield client  
 
-    # Send a POST request to create a new ask record
-    create_ask_response = requests.post(ENDPOINT + "/ask", json=payload)
-    assert create_ask_response.status_code == 201  # Assuming 201 Created is the expected response
+def test_ask_success(client):
+    with patch('app.routes.ask_open_ai') as mock_ask_open_ai, \
+         patch('app.routes.save_record') as mock_save_record:
 
-    # Retrieve the response data
-    data = create_ask_response.json()
+        mock_ask_open_ai.return_value = {
+            'status_code': 200,
+            'content': 'This is a test response'
+        }
 
-    # Get the ask record ID from the response
-    ask_id = data["ask"]["id"]  # Adjust based on your response structure
+        response = client.post('/ask', json={'question': 'What is AI?'})
 
-    # Now, check if we can retrieve the created ask record
-    get_ask_response = requests.get(ENDPOINT + f"/ask/{ask_id}")
-    assert get_ask_response.status_code == 200
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'output_string' in data
+        assert data['output_string'] == 'This is a test response'
 
-    # Validate the retrieved ask record data
-    get_ask_data = get_ask_response.json()
-    assert get_ask_data["question"] == payload["question"]
-    assert get_ask_data.get("response") is None  # Check if response is None since it's not provided
-    assert get_ask_data.get("error") is None  # Check if error is None since it's not provided
-    assert get_ask_data.get("status_code") is None  # Check if status_code is None since it's not provided
+        mock_save_record.assert_called_once_with(
+            question='What is AI?',
+            response='This is a test response',
+            status_code=200
+        )
 
-# To run the tests, use pytest in your terminal:
-# pytest test_todo_api.py
+def test_ask_invalid_input(client):
+    response = client.post('/ask', json={'question': 123})
+
+    assert response.status_code == 400
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Invalid input: input_string is required and must be a non-empty string.'
+
+def test_ask_error_response(client):
+    with patch('app.routes.ask_open_ai') as mock_ask_open_ai, \
+         patch('app.routes.save_record') as mock_save_record:
+
+        mock_ask_open_ai.return_value = {
+            'status_code': 500,
+            'error': 'API error'
+        }
+
+        response = client.post('/ask', json={'question': 'What is AI?'})
+
+        assert response.status_code == 500
+        data = json.loads(response.data)
+        assert 'error' in data
+        assert data['error'] == 'API error'
+
+        mock_save_record.assert_called_once_with(
+            question='What is AI?',
+            error='API error',
+            status_code=500
+        )
