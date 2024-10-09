@@ -18,7 +18,6 @@ def ask_open_ai(question):
             model="gpt-3.5-turbo",
         )
         response_dict = response.model_dump()
-        print(response_dict)
         content = response_dict['choices'][0]['message']['content']
         return {"status_code": 200, "content": content}
     except OpenAIError as ex:
